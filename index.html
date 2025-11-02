@@ -88,7 +88,26 @@
   </head>
   <body>
     <div id="chat">
-      <div id="header">🤖 Chatbot - Solicitud de Permisos</div>
+      <div id="header">
+        🤖 Chatbot - Solicitud de Permisos
+        <a
+          href="http://127.0.0.1:5000/admin"
+          target="_blank"
+          style="
+            float: right;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 5px;
+            transition: all 0.3s;
+          "
+          onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+          onmouseout="this.style.background='rgba(255,255,255,0.2)'"
+          >📊 Admin</a
+        >
+      </div>
       <div id="messages"></div>
       <div id="input-container">
         <input
@@ -110,7 +129,7 @@
       window.onload = () => {
         appendMessage(
           "bot",
-          "¡Hola! Soy tu asistente para solicitudes de permisos. Por favor, dime tu nombre completo para comenzar."
+          "¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n\n💡 Tip: Si no sabes el número de tu solicitud, usa la opción 3 con tu correo electrónico.\n\nTambién puedes escribir tu nombre directamente para empezar con una nueva solicitud."
         );
       };
 

@@ -55,6 +55,128 @@ def handle_message(state, message):
   # This is extremely simple and deterministic
   msg = message.strip().lower()
 
+  # Check for menu options at any time (not in the middle of creating a request)
+  if not state.get('nombre') or state.get('confirmado'):
+    # Menu options
+    if msg in ('1', 'nueva', 'nueva solicitud', 'otro permiso'):
+      # Reset state for new request
+      state.clear()
+      return {'reply': 'Perfecto, iniciemos una nueva solicitud. Por favor dime tu nombre completo.', 'state': state}
+    elif msg in ('2', 'consultar', 'ver solicitud', 'estado', 'consultar solicitud'):
+      state.clear()
+      state['action'] = 'consultar'
+      state['next_action'] = True
+      
+      # Mostrar las últimas solicitudes como ayuda
+      conn = sqlite3.connect(DB)
+      c = conn.cursor()
+      c.execute('SELECT id, nombre, tipo, estado FROM solicitudes ORDER BY id DESC LIMIT 10')
+      rows = c.fetchall()
+      conn.close()
+      
+      if rows:
+        mensaje = '📋 **Últimas solicitudes registradas:**\n\n'
+        for row in rows:
+          mensaje += f"#{row[0]} - {row[1]} ({row[2]}) - {row[3]}\n"
+        mensaje += '\n💡 Escribe el número de solicitud que deseas consultar:'
+        return {'reply': mensaje, 'state': state}
+      else:
+        return {'reply': 'No hay solicitudes registradas aún. Por favor ingresa el número de solicitud que deseas consultar:', 'state': state}
+    elif msg in ('3', 'mis solicitudes', 'todas', 'listar', 'ver todas'):
+      state.clear()
+      state['action'] = 'listar'
+      state['next_action'] = True
+      return {'reply': 'Por favor ingresa tu correo electrónico para ver todas tus solicitudes:', 'state': state}
+    elif msg in ('4', 'salir', 'terminar', 'adios', 'chao'):
+      state.clear()
+      return {'reply': '¡Hasta pronto! Gracias por usar el sistema de solicitudes. Si necesitas algo más, solo escribe "hola" para comenzar.', 'state': state}
+
+  # Handle consultar solicitud
+  if state.get('action') == 'consultar' and state.get('next_action'):
+    try:
+      solicitud_id = int(msg)
+      conn = sqlite3.connect(DB)
+      c = conn.cursor()
+      c.execute('SELECT * FROM solicitudes WHERE id = ?', (solicitud_id,))
+      row = c.fetchone()
+      conn.close()
+      
+      if row:
+        resultado = f"📋 **Solicitud #{row[0]}**\n\n" \
+                   f"👤 Nombre: {row[1]}\n" \
+                   f"📧 Correo: {row[2]}\n" \
+                   f"📝 Tipo: {row[3]}\n" \
+                   f"📅 Inicio: {row[4]}\n" \
+                   f"📅 Fin: {row[5]}\n" \
+                   f"💬 Motivo: {row[6]}\n" \
+                   f"🔔 Estado: {row[7]}\n" \
+                   f"🕐 Creado: {row[8]}\n\n" \
+                   f"¿Qué deseas hacer?\n" \
+                   f"1️⃣ Nueva solicitud\n" \
+                   f"2️⃣ Consultar otra solicitud\n" \
+                   f"3️⃣ Ver todas mis solicitudes\n" \
+                   f"4️⃣ Salir"
+        state.clear()
+        state['confirmado'] = True
+        return {'reply': resultado, 'state': state}
+      else:
+        # Mostrar las solicitudes disponibles
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute('SELECT id, nombre, tipo, estado FROM solicitudes ORDER BY id DESC LIMIT 10')
+        rows = c.fetchall()
+        conn.close()
+        
+        if rows:
+          resultado = f'❌ No se encontró la solicitud #{solicitud_id}.\n\n📋 **Últimas 10 solicitudes registradas:**\n\n'
+          for row in rows:
+            resultado += f"#{row[0]} - {row[1]} ({row[2]}) - {row[3]}\n"
+          resultado += f"\n💡 Escribe el número de solicitud que deseas consultar, o:\n" \
+                      f"1️⃣ Nueva solicitud\n" \
+                      f"3️⃣ Ver todas mis solicitudes (por correo)\n" \
+                      f"4️⃣ Salir"
+          return {'reply': resultado, 'state': state}
+        else:
+          resultado = f'❌ No se encontró la solicitud #{solicitud_id} y no hay solicitudes registradas.\n\n' \
+                     f'¿Qué deseas hacer?\n' \
+                     f'1️⃣ Crear nueva solicitud\n' \
+                     f'4️⃣ Salir'
+          state.clear()
+          state['confirmado'] = True
+          return {'reply': resultado, 'state': state}
+    except ValueError:
+      return {'reply': 'Por favor ingresa un número válido de solicitud:', 'state': state}
+
+  # Handle listar solicitudes
+  if state.get('action') == 'listar' and state.get('next_action'):
+    if '@' in msg:
+      correo = message.strip()
+      conn = sqlite3.connect(DB)
+      c = conn.cursor()
+      c.execute('SELECT * FROM solicitudes WHERE correo = ? ORDER BY id DESC', (correo,))
+      rows = c.fetchall()
+      conn.close()
+      
+      if rows:
+        resultado = f"📬 **Solicitudes encontradas para {correo}:**\n\n"
+        for row in rows:
+          resultado += f"#{row[0]} - {row[3]} ({row[4]} al {row[5]}) - Estado: {row[7]}\n"
+        resultado += f"\n¿Qué deseas hacer?\n" \
+                    f"1️⃣ Nueva solicitud\n" \
+                    f"2️⃣ Consultar solicitud específica\n" \
+                    f"3️⃣ Ver todas mis solicitudes\n" \
+                    f"4️⃣ Salir"
+        state.clear()
+        state['confirmado'] = True
+        return {'reply': resultado, 'state': state}
+      else:
+        resultado = f'No se encontraron solicitudes para el correo {correo}.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Intentar con otro correo\n4️⃣ Salir'
+        state.clear()
+        state['confirmado'] = True
+        return {'reply': resultado, 'state': state}
+    else:
+      return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
+
   # If no nombre, ask for nombre
   if not state.get('nombre'):
     # try to extract email-like token
@@ -124,9 +246,19 @@ def handle_message(state, message):
       solicitud_id = c.lastrowid
       conn.close()
       state['confirmado'] = True
-      return {'reply': 'Tu solicitud ha sido registrada con éxito. Número de solicitud: ' + str(solicitud_id), 'state': state}
+      menu = f"✅ ¡Tu solicitud ha sido registrada con éxito!\n\n" \
+             f"📋 **Número de solicitud: {solicitud_id}**\n\n" \
+             f"Guarda este número para consultar el estado de tu solicitud.\n\n" \
+             f"¿Qué deseas hacer ahora?\n" \
+             f"1️⃣ Crear nueva solicitud\n" \
+             f"2️⃣ Consultar una solicitud\n" \
+             f"3️⃣ Ver todas mis solicitudes\n" \
+             f"4️⃣ Salir\n\n" \
+             f"Escribe el número o la opción que prefieras."
+      return {'reply': menu, 'state': state}
     else:
-      return {'reply': 'Solicitud cancelada. Si quieres empezar de nuevo, escribe "reiniciar".', 'state': state}
+      state.clear()
+      return {'reply': 'Solicitud cancelada. Si quieres empezar de nuevo, escribe tu nombre.', 'state': state}
 
   # Fallback
   return {'reply': 'No entendí. Por favor sigue las indicaciones.', 'state': state}
@@ -146,9 +278,9 @@ def chat():
     message = data.get('message', '').strip()
 
     # Handle reset
-    if message.lower() in ('reiniciar', 'reset', 'empezar'):
+    if message.lower() in ('reiniciar', 'reset', 'empezar', 'hola', 'inicio', 'menu'):
         sessions[session_id] = {}
-        return jsonify({'reply': 'Conversación reiniciada. Por favor dime tu nombre completo.'})
+        return jsonify({'reply': '¡Hola! Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n\n💡 Tip: Si no sabes el número de tu solicitud, usa la opción 3 con tu correo.'})
 
     # Get or create session state
     if session_id not in sessions:
@@ -159,6 +291,41 @@ def chat():
     sessions[session_id] = result['state']
 
     return jsonify({'reply': result['reply']})
+
+
+@app.route('/admin')
+def admin():
+    return send_file('admin.html')
+
+
+@app.route('/api/solicitudes', methods=['GET'])
+def get_solicitudes():
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM solicitudes ORDER BY id DESC')
+    rows = c.fetchall()
+    conn.close()
+    
+    solicitudes = [dict(row) for row in rows]
+    return jsonify(solicitudes)
+
+
+@app.route('/api/solicitudes/<int:solicitud_id>', methods=['PUT'])
+def update_solicitud(solicitud_id):
+    data = request.json
+    nuevo_estado = data.get('estado')
+    
+    if nuevo_estado not in ['Pendiente', 'Aprobado', 'Rechazado']:
+        return jsonify({'error': 'Estado inválido'}), 400
+    
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute('UPDATE solicitudes SET estado = ? WHERE id = ?', (nuevo_estado, solicitud_id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'success': True, 'message': f'Solicitud {solicitud_id} actualizada a {nuevo_estado}'})
 
 
 if __name__ == '__main__':
