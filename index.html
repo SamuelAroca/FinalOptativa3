@@ -239,6 +239,19 @@
           const j = await res.json();
           appendMessage("bot", j.reply);
 
+          // Mostrar botones del menú si viene showButtons
+          console.log("Respuesta del servidor:", j);
+          if (j.showButtons === true) {
+            console.log("Mostrando botones del menú");
+            showOptionsButtons([
+              { text: "📝 Nueva solicitud", value: "1" },
+              { text: "🔍 Consultar solicitud", value: "2" },
+              { text: "📋 Mis solicitudes", value: "3" },
+              { text: "📊 Mis estadísticas", value: "estadisticas" },
+              { text: "❌ Cancelar solicitud", value: "cancelar" },
+            ]);
+          }
+
           // Mostrar botones de confirmación si/no
           if (j.reply.includes("(si/no)") || j.reply.includes("¿Confirmas")) {
             showYesNoButtons();

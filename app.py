@@ -193,13 +193,20 @@ def handle_message(state, message):
 
   # Check for menu options at any time (not in the middle of creating a request)
   if not state.get('nombre') or state.get('confirmado'):
+    # Preservar correo_usuario antes de cualquier acción
+    correo_guardado = state.get('correo_usuario')
+    
     # Menu options
     if msg in ('1', 'nueva', 'nueva solicitud', 'otro permiso'):
       # Reset state for new request
       state.clear()
+      if correo_guardado:
+        state['correo_usuario'] = correo_guardado
       return {'reply': 'Perfecto, iniciemos una nueva solicitud. Por favor dime tu nombre completo.', 'state': state}
     elif msg in ('2', 'consultar', 'ver solicitud', 'estado', 'consultar solicitud'):
       state.clear()
+      if correo_guardado:
+        state['correo_usuario'] = correo_guardado
       state['action'] = 'consultar'
       state['next_action'] = True
       
@@ -220,11 +227,15 @@ def handle_message(state, message):
         return {'reply': 'No hay solicitudes registradas aún. Por favor ingresa el número de solicitud que deseas consultar:', 'state': state}
     elif msg in ('3', 'mis solicitudes', 'todas', 'listar', 'ver todas'):
       state.clear()
+      if correo_guardado:
+        state['correo_usuario'] = correo_guardado
       state['action'] = 'listar'
       state['next_action'] = True
       return {'reply': 'Por favor ingresa tu correo electrónico para ver todas tus solicitudes:', 'state': state}
     elif msg in ('cancelar', 'cancelar solicitud', 'anular'):
       state.clear()
+      if correo_guardado:
+        state['correo_usuario'] = correo_guardado
       state['action'] = 'cancelar'
       state['next_action'] = True
       return {'reply': 'Para cancelar una solicitud, por favor ingresa tu correo electrónico:', 'state': state}
@@ -233,71 +244,76 @@ def handle_message(state, message):
       return {'reply': '¡Hasta pronto! Gracias por usar el sistema de solicitudes. Si necesitas algo más, solo escribe "hola" para comenzar.', 'state': state}
     elif msg in ('estadisticas', 'estadísticas', 'stats', 'mis estadisticas'):
       state.clear()
+      if correo_guardado:
+        state['correo_usuario'] = correo_guardado
       state['action'] = 'estadisticas'
       state['next_action'] = True
       return {'reply': 'Para ver tus estadísticas, por favor ingresa tu correo electrónico:', 'state': state}
 
   # Handle estadisticas
   if state.get('action') == 'estadisticas' and state.get('next_action'):
-    if '@' in msg:
+    # Si ya tiene correo guardado, usarlo directamente
+    if state.get('correo_usuario') and not ('@' in msg):
+      correo = state['correo_usuario']
+    elif '@' in msg:
       correo = message.strip()
-      conn = sqlite3.connect(DB)
-      c = conn.cursor()
-      
-      # Contar solicitudes por estado
-      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ?', (correo,))
-      total = c.fetchone()[0]
-      
-      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Pendiente"', (correo,))
-      pendientes = c.fetchone()[0]
-      
-      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Aprobado"', (correo,))
-      aprobadas = c.fetchone()[0]
-      
-      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Rechazado"', (correo,))
-      rechazadas = c.fetchone()[0]
-      
-      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Cancelado"', (correo,))
-      canceladas = c.fetchone()[0]
-      
-      # Solicitud más reciente
-      c.execute('SELECT tipo, inicio, estado FROM solicitudes WHERE correo = ? ORDER BY id DESC LIMIT 1', (correo,))
-      reciente = c.fetchone()
-      
-      conn.close()
-      
-      if total > 0:
-        tasa_aprobacion = (aprobadas / total * 100) if total > 0 else 0
-        
-        resultado = f"📊 **ESTADÍSTICAS PARA {correo}**\n\n" \
-                   f"📈 Total de solicitudes: {total}\n" \
-                   f"⏳ Pendientes: {pendientes}\n" \
-                   f"✅ Aprobadas: {aprobadas}\n" \
-                   f"❌ Rechazadas: {rechazadas}\n" \
-                   f"🚫 Canceladas: {canceladas}\n\n" \
-                   f"📊 Tasa de aprobación: {tasa_aprobacion:.1f}%\n\n"
-        
-        if reciente:
-          resultado += f"🕐 Última solicitud:\n" \
-                      f"   • Tipo: {reciente[0]}\n" \
-                      f"   • Fecha: {reciente[1]}\n" \
-                      f"   • Estado: {reciente[2]}\n\n"
-        
-        resultado += f"¿Qué deseas hacer?\n" \
-                    f"1️⃣ Nueva solicitud\n" \
-                    f"2️⃣ Consultar solicitud\n" \
-                    f"3️⃣ Ver todas mis solicitudes\n" \
-                    f"4️⃣ Salir"
-        
-        state.clear()
-        state['confirmado'] = True
-        return {'reply': resultado, 'state': state}
-      else:
-        state.clear()
-        state['confirmado'] = True
-        return {'reply': f'No tienes solicitudes registradas con el correo {correo}.\n\n¿Deseas crear una nueva solicitud? (1 = Sí, 4 = Salir)', 'state': state}
+      state['correo_usuario'] = correo  # Guardar para futuras consultas
     else:
       return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
+    
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    
+    # Contar solicitudes por estado
+    c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ?', (correo,))
+    total = c.fetchone()[0]
+    
+    c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Pendiente"', (correo,))
+    pendientes = c.fetchone()[0]
+    
+    c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Aprobado"', (correo,))
+    aprobadas = c.fetchone()[0]
+    
+    c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Rechazado"', (correo,))
+    rechazadas = c.fetchone()[0]
+    
+    c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Cancelado"', (correo,))
+    canceladas = c.fetchone()[0]
+    
+    # Solicitud más reciente
+    c.execute('SELECT tipo, inicio, estado FROM solicitudes WHERE correo = ? ORDER BY id DESC LIMIT 1', (correo,))
+    reciente = c.fetchone()
+    
+    conn.close()
+    
+    if total > 0:
+      tasa_aprobacion = (aprobadas / total * 100) if total > 0 else 0
+      
+      resultado = f"📊 **ESTADÍSTICAS PARA {correo}**\n\n" \
+                 f"📈 Total de solicitudes: {total}\n" \
+                 f"⏳ Pendientes: {pendientes}\n" \
+                 f"✅ Aprobadas: {aprobadas}\n" \
+                 f"❌ Rechazadas: {rechazadas}\n" \
+                 f"🚫 Canceladas: {canceladas}\n\n" \
+                 f"📊 Tasa de aprobación: {tasa_aprobacion:.1f}%\n\n"
+      
+      if reciente:
+        resultado += f"🕐 Última solicitud:\n" \
+                    f"   • Tipo: {reciente[0]}\n" \
+                    f"   • Fecha: {reciente[1]}\n" \
+                    f"   • Estado: {reciente[2]}\n\n"
+      
+      resultado += f"¿Qué deseas hacer?"
+      
+      state.clear()
+      state['confirmado'] = True
+      state['correo_usuario'] = correo  # Mantener el correo guardado
+      return {'reply': resultado, 'state': state, 'showButtons': True}
+    else:
+      state.clear()
+      state['confirmado'] = True
+      state['correo_usuario'] = correo  # Mantener el correo guardado
+      return {'reply': f'No tienes solicitudes registradas con el correo {correo}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
 
   # Handle consultar solicitud
   if state.get('action') == 'consultar' and state.get('next_action'):
@@ -319,14 +335,10 @@ def handle_message(state, message):
                    f"💬 Motivo: {row[6]}\n" \
                    f"🔔 Estado: {row[7]}\n" \
                    f"🕐 Creado: {row[8]}\n\n" \
-                   f"¿Qué deseas hacer?\n" \
-                   f"1️⃣ Nueva solicitud\n" \
-                   f"2️⃣ Consultar otra solicitud\n" \
-                   f"3️⃣ Ver todas mis solicitudes\n" \
-                   f"4️⃣ Salir"
+                   f"¿Qué deseas hacer?"
         state.clear()
         state['confirmado'] = True
-        return {'reply': resultado, 'state': state}
+        return {'reply': resultado, 'state': state, 'showButtons': True}
       else:
         # Mostrar las solicitudes disponibles
         conn = sqlite3.connect(DB)
@@ -339,78 +351,86 @@ def handle_message(state, message):
           resultado = f'❌ No se encontró la solicitud #{solicitud_id}.\n\n📋 **Últimas 10 solicitudes registradas:**\n\n'
           for row in rows:
             resultado += f"#{row[0]} - {row[1]} ({row[2]}) - {row[3]}\n"
-          resultado += f"\n💡 Escribe el número de solicitud que deseas consultar, o:\n" \
-                      f"1️⃣ Nueva solicitud\n" \
-                      f"3️⃣ Ver todas mis solicitudes (por correo)\n" \
-                      f"4️⃣ Salir"
-          return {'reply': resultado, 'state': state}
+          resultado += f"\n💡 Escribe el número de solicitud que deseas consultar, o elige una opción:"
+          return {'reply': resultado, 'state': state, 'showButtons': True}
         else:
           resultado = f'❌ No se encontró la solicitud #{solicitud_id} y no hay solicitudes registradas.\n\n' \
-                     f'¿Qué deseas hacer?\n' \
-                     f'1️⃣ Crear nueva solicitud\n' \
-                     f'4️⃣ Salir'
+                     f'¿Qué deseas hacer?'
           state.clear()
           state['confirmado'] = True
-          return {'reply': resultado, 'state': state}
+          return {'reply': resultado, 'state': state, 'showButtons': True}
     except ValueError:
       return {'reply': 'Por favor ingresa un número válido de solicitud:', 'state': state}
 
   # Handle listar solicitudes
   if state.get('action') == 'listar' and state.get('next_action'):
-    if '@' in msg:
+    # Si ya tiene correo guardado, usarlo directamente
+    if state.get('correo_usuario') and not ('@' in msg):
+      correo = state['correo_usuario']
+    elif '@' in msg:
       correo = message.strip()
-      conn = sqlite3.connect(DB)
-      c = conn.cursor()
-      c.execute('SELECT * FROM solicitudes WHERE correo = ? ORDER BY id DESC', (correo,))
-      rows = c.fetchall()
-      conn.close()
-      
-      if rows:
-        resultado = f"📬 **Solicitudes encontradas para {correo}:**\n\n"
-        for row in rows:
-          resultado += f"#{row[0]} - {row[3]} ({row[4]} al {row[5]}) - Estado: {row[7]}\n"
-        resultado += f"\n¿Qué deseas hacer?\n" \
-                    f"1️⃣ Nueva solicitud\n" \
-                    f"2️⃣ Consultar solicitud específica\n" \
-                    f"3️⃣ Ver todas mis solicitudes\n" \
-                    f"4️⃣ Salir"
-        state.clear()
-        state['confirmado'] = True
-        return {'reply': resultado, 'state': state}
-      else:
-        resultado = f'No se encontraron solicitudes para el correo {correo}.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Intentar con otro correo\n4️⃣ Salir'
-        state.clear()
-        state['confirmado'] = True
-        return {'reply': resultado, 'state': state}
+      state['correo_usuario'] = correo  # Guardar para futuras consultas
     else:
       return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
+    
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute('SELECT * FROM solicitudes WHERE correo = ? ORDER BY id DESC', (correo,))
+    rows = c.fetchall()
+    conn.close()
+    
+    if rows:
+      resultado = f"📬 **Solicitudes encontradas para {correo}:**\n\n"
+      for row in rows:
+        resultado += f"#{row[0]} - {row[3]} ({row[4]} al {row[5]}) - Estado: {row[7]}\n"
+      resultado += f"\n¿Qué deseas hacer?\n" \
+                  f"1️⃣ Nueva solicitud\n" \
+                  f"2️⃣ Consultar solicitud específica\n" \
+                  f"3️⃣ Ver todas mis solicitudes\n" \
+                  f"4️⃣ Salir"
+      state.clear()
+      state['confirmado'] = True
+      state['correo_usuario'] = correo  # Mantener el correo guardado
+      return {'reply': resultado, 'state': state}
+    else:
+      resultado = f'No se encontraron solicitudes para el correo {correo}.\n\n¿Qué deseas hacer?'
+      state.clear()
+      state['confirmado'] = True
+      state['correo_usuario'] = correo  # Mantener el correo guardado
+      return {'reply': resultado, 'state': state, 'showButtons': True}
 
   # Handle cancelar solicitud
   if state.get('action') == 'cancelar':
     if not state.get('cancel_correo'):
-      if '@' in msg:
+      # Si ya tiene correo guardado, usarlo directamente
+      if state.get('correo_usuario') and not ('@' in msg):
+        correo = state['correo_usuario']
+        state['cancel_correo'] = correo
+      elif '@' in msg:
         correo = message.strip()
         state['cancel_correo'] = correo
-        
-        # Buscar solicitudes pendientes del usuario
-        conn = sqlite3.connect(DB)
-        c = conn.cursor()
-        c.execute('SELECT id, tipo, inicio, fin FROM solicitudes WHERE correo = ? AND estado = "Pendiente" ORDER BY id DESC', (correo,))
-        rows = c.fetchall()
-        conn.close()
-        
-        if rows:
-          resultado = f"📋 **Solicitudes pendientes para {correo}:**\n\n"
-          for row in rows:
-            resultado += f"#{row[0]} - {row[1]} ({row[2]} al {row[3]})\n"
-          resultado += f"\n💡 Escribe el número de la solicitud que deseas cancelar:"
-          return {'reply': resultado, 'state': state}
-        else:
-          state.clear()
-          state['confirmado'] = True
-          return {'reply': f'No se encontraron solicitudes pendientes para {correo}.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Ver todas mis solicitudes\n4️⃣ Salir', 'state': state}
+        state['correo_usuario'] = correo  # Guardar para futuras consultas
       else:
         return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
+      
+      # Buscar solicitudes pendientes del usuario
+      conn = sqlite3.connect(DB)
+      c = conn.cursor()
+      c.execute('SELECT id, tipo, inicio, fin FROM solicitudes WHERE correo = ? AND estado = "Pendiente" ORDER BY id DESC', (correo,))
+      rows = c.fetchall()
+      conn.close()
+      
+      if rows:
+        resultado = f"📋 **Solicitudes pendientes para {correo}:**\n\n"
+        for row in rows:
+          resultado += f"#{row[0]} - {row[1]} ({row[2]} al {row[3]})\n"
+        resultado += f"\n💡 Escribe el número de la solicitud que deseas cancelar:"
+        return {'reply': resultado, 'state': state}
+      else:
+        state.clear()
+        state['confirmado'] = True
+        state['correo_usuario'] = correo  # Mantener el correo guardado
+        return {'reply': f'No se encontraron solicitudes pendientes para {correo}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
     else:
       # Usuario ya proporcionó correo, ahora esperamos el ID
       try:
@@ -439,7 +459,7 @@ Sistema de Gestión de Permisos"""
           
           state.clear()
           state['confirmado'] = True
-          return {'reply': f'✅ La solicitud #{solicitud_id} ha sido cancelada exitosamente.\n\n📧 Se ha enviado una confirmación por correo.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Ver todas mis solicitudes\n4️⃣ Salir', 'state': state}
+          return {'reply': f'✅ La solicitud #{solicitud_id} ha sido cancelada exitosamente.\n\n📧 Se ha enviado una confirmación por correo.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
         else:
           conn.close()
           return {'reply': f'❌ No se encontró una solicitud pendiente con el número {solicitud_id} para tu correo. Verifica el número e intenta de nuevo:', 'state': state}
@@ -460,6 +480,7 @@ Sistema de Gestión de Permisos"""
   if not state.get('correo'):
     if '@' in msg and '.' in msg.split('@')[-1]:
       state['correo'] = message.strip()
+      state['correo_usuario'] = message.strip()  # Guardar para futuras consultas
       return {'reply': '¿Qué tipo de permiso requieres?\n\n💡 Ejemplos:\n• Enfermedad 🏥\n• Personal 👤\n• Estudio 📚\n• Vacaciones 🏖️\n• Familiar 👨‍👩‍👧\n• Otro (especifica)', 'state': state}
     else:
       return {'reply': 'Ese correo no parece válido. Por favor escribe un correo válido (ej: usuario@dominio.com).', 'state': state}
@@ -566,25 +587,15 @@ Sistema de Gestión de Permisos"""
                f"📬 Revisa tu bandeja de entrada (puede tardar 1-2 minutos).\n" \
                f"💡 Si no lo ves, revisa la carpeta de Spam.\n\n" \
                f"📋 Recuerda tu número de solicitud: **#{state['solicitud_id']}**\n\n" \
-               f"¿Qué deseas hacer ahora?\n" \
-               f"1️⃣ Crear nueva solicitud\n" \
-               f"2️⃣ Consultar una solicitud\n" \
-               f"3️⃣ Ver todas mis solicitudes\n" \
-               f"📊 Ver mis estadísticas\n" \
-               f"4️⃣ Salir"
-        return {'reply': menu, 'state': state}
+               f"¿Qué deseas hacer ahora?"
+        return {'reply': menu, 'state': state, 'showButtons': True}
     else:
       state['confirmado'] = True
       menu = f"✅ De acuerdo, no se enviará correo.\n\n" \
              f"📋 Guarda este número para consultar el estado: **#{state['solicitud_id']}**\n\n" \
-             f"💡 Tip: Puedes consultar tu solicitud en cualquier momento con la opción 2.\n\n" \
-             f"¿Qué deseas hacer ahora?\n" \
-               f"1️⃣ Crear nueva solicitud\n" \
-               f"2️⃣ Consultar una solicitud\n" \
-               f"3️⃣ Ver todas mis solicitudes\n" \
-               f"📊 Ver mis estadísticas\n" \
-               f"4️⃣ Salir"
-      return {'reply': menu, 'state': state}
+             f"💡 Tip: Puedes consultar tu solicitud en cualquier momento.\n\n" \
+             f"¿Qué deseas hacer ahora?"
+      return {'reply': menu, 'state': state, 'showButtons': True}
 
   # Fallback
   return {'reply': 'No entendí. Por favor sigue las indicaciones.', 'state': state}
