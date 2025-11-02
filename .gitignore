@@ -1,0 +1,29 @@
+# Variables de entorno (contiene credenciales)
+.env
+
+# Base de datos
+*.db
+
+# PDFs generados
+pdfs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

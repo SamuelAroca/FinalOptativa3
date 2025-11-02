@@ -137,6 +137,10 @@
         background: #fab1a0;
         color: #d63031;
       }
+      .status-cancelado {
+        background: #dfe6e9;
+        color: #636e72;
+      }
       .action-btns {
         display: flex;
         gap: 5px;
@@ -155,6 +159,10 @@
       }
       .btn-reject {
         background: #d63031;
+        color: white;
+      }
+      .btn-pdf {
+        background: #667eea;
         color: white;
       }
       .btn:hover {
@@ -221,6 +229,10 @@
           <div class="stat-number" id="rechazadas">0</div>
           <div class="stat-label">Rechazadas</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-number" id="canceladas">0</div>
+          <div class="stat-label">Canceladas</div>
+        </div>
       </div>
 
       <div class="table-container">
@@ -239,6 +251,9 @@
             <button class="filter-btn" data-filter="Aprobado">Aprobadas</button>
             <button class="filter-btn" data-filter="Rechazado">
               Rechazadas
+            </button>
+            <button class="filter-btn" data-filter="Cancelado">
+              Canceladas
             </button>
           </div>
           <button class="refresh-btn" onclick="loadData()">
@@ -298,11 +313,15 @@
         const rechazadas = allData.filter(
           (s) => s.estado === "Rechazado"
         ).length;
+        const canceladas = allData.filter(
+          (s) => s.estado === "Cancelado"
+        ).length;
 
         document.getElementById("total").textContent = total;
         document.getElementById("pendientes").textContent = pendientes;
         document.getElementById("aprobadas").textContent = aprobadas;
         document.getElementById("rechazadas").textContent = rechazadas;
+        document.getElementById("canceladas").textContent = canceladas;
       }
 
       function filterData(data) {
@@ -362,12 +381,15 @@
                   s.id
                 }, 'Aprobado')" ${
               s.estado === "Aprobado" ? "disabled" : ""
-            }>✓</button>
+            } title="Aprobar">✓</button>
                 <button class="btn btn-reject" onclick="updateStatus(${
                   s.id
                 }, 'Rechazado')" ${
               s.estado === "Rechazado" ? "disabled" : ""
-            }>✗</button>
+            } title="Rechazar">✗</button>
+                <button class="btn btn-pdf" onclick="downloadPDF(${
+                  s.id
+                })" title="Descargar PDF">📄</button>
               </div>
             </td>
           </tr>
@@ -387,11 +409,22 @@
             }
           );
           if (res.ok) {
+            const data = await res.json();
+            alert(
+              `✅ ${data.message}\n\n📧 Se ha enviado una notificación por correo al solicitante.`
+            );
             loadData(); // Reload data
           }
         } catch (error) {
           alert("Error al actualizar el estado");
         }
+      }
+
+      function downloadPDF(id) {
+        window.open(
+          `http://127.0.0.1:5000/api/solicitudes/${id}/pdf`,
+          "_blank"
+        );
       }
 
       function sortTable(columnIndex) {

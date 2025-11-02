@@ -1,9 +1,22 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.units import inch
+from dotenv import load_dotenv
 import sqlite3
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 
+# Cargar variables de entorno
+load_dotenv()
 
 DB = 'solicitudes.db'
 
@@ -28,13 +41,156 @@ def init_db():
       fin TEXT,
       motivo TEXT,
       estado TEXT,
-      creado_en TEXT
+      creado_en TEXT,
+      comentarios TEXT
     )
 ''')
     conn.commit()
     conn.close()
 
 init_db()
+
+
+# --- Email configuration ---
+def send_email_notification(to_email, subject, body, pdf_path=None):
+    """
+    Envía correo electrónico real usando SMTP.
+    """
+    # Obtener configuración desde variables de entorno
+    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('SMTP_PORT', '587'))
+    sender_email = os.getenv('SENDER_EMAIL')
+    sender_password = os.getenv('SENDER_PASSWORD')
+    sender_name = os.getenv('SENDER_NAME', 'Sistema de Solicitudes')
+    
+    # Validar que las credenciales estén configuradas
+    if not sender_email or not sender_password or sender_password == 'tu_contraseña_aqui':
+        print(f"\n{'='*60}")
+        print(f"⚠️  CONFIGURACIÓN DE CORREO PENDIENTE")
+        print(f"{'='*60}")
+        print(f"Para: {to_email}")
+        print(f"Asunto: {subject}")
+        print(f"Mensaje:\n{body}")
+        if pdf_path:
+            print(f"Adjunto: {pdf_path}")
+        print(f"\n💡 Para enviar correos reales:")
+        print(f"1. Edita el archivo .env")
+        print(f"2. Agrega tu correo y contraseña")
+        print(f"3. Reinicia el servidor")
+        print(f"{'='*60}\n")
+        return False
+    
+    try:
+        # Crear mensaje
+        msg = MIMEMultipart()
+        msg['From'] = f"{sender_name} <{sender_email}>"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        # Agregar cuerpo del mensaje
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Adjuntar PDF si existe
+        if pdf_path and os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f"attachment; filename= {os.path.basename(pdf_path)}"
+            )
+            msg.attach(part)
+        
+        # Conectar y enviar
+        print(f"\n📧 Enviando correo a {to_email}...")
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"✅ Correo enviado exitosamente a {to_email}")
+        print(f"   Asunto: {subject}\n")
+        return True
+        
+    except smtplib.SMTPAuthenticationError:
+        print(f"\n❌ ERROR DE AUTENTICACIÓN")
+        print(f"   Verifica tu correo y contraseña en el archivo .env")
+        print(f"   Para Gmail, necesitas una 'Contraseña de Aplicación'\n")
+        return False
+    except Exception as e:
+        print(f"\n❌ Error al enviar correo: {str(e)}\n")
+        return False
+
+
+def generate_pdf(solicitud_data):
+    """Genera un PDF con los detalles de la solicitud"""
+    if not os.path.exists('pdfs'):
+        os.makedirs('pdfs')
+    
+    filename = f"pdfs/solicitud_{solicitud_data['id']}.pdf"
+    doc = SimpleDocTemplate(filename, pagesize=letter)
+    elements = []
+    
+    # Estilos
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#667eea'),
+        spaceAfter=30,
+        alignment=1
+    )
+    
+    # Título
+    title = Paragraph("📋 SOLICITUD DE PERMISO", title_style)
+    elements.append(title)
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Datos de la solicitud en tabla
+    data = [
+        ['Campo', 'Valor'],
+        ['Número de Solicitud', f"#{solicitud_data['id']}"],
+        ['Nombre Completo', solicitud_data['nombre']],
+        ['Correo Electrónico', solicitud_data['correo']],
+        ['Tipo de Permiso', solicitud_data['tipo']],
+        ['Fecha de Inicio', solicitud_data['inicio']],
+        ['Fecha de Fin', solicitud_data['fin']],
+        ['Motivo', solicitud_data['motivo']],
+        ['Estado', solicitud_data['estado']],
+        ['Fecha de Creación', solicitud_data['creado_en']],
+    ]
+    
+    table = Table(data, colWidths=[2.5*inch, 4*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ('PADDING', (0, 0), (-1, -1), 8),
+    ]))
+    
+    elements.append(table)
+    elements.append(Spacer(1, 0.5*inch))
+    
+    # Nota al pie
+    note = Paragraph(
+        "<i>Este documento es un comprobante de tu solicitud de permiso. "
+        "Guárdalo para futuras referencias.</i>",
+        styles['Normal']
+    )
+    elements.append(note)
+    
+    doc.build(elements)
+    return filename
 
 
 # --- Utilidades simples ---
@@ -87,6 +243,11 @@ def handle_message(state, message):
       state['action'] = 'listar'
       state['next_action'] = True
       return {'reply': 'Por favor ingresa tu correo electrónico para ver todas tus solicitudes:', 'state': state}
+    elif msg in ('cancelar', 'cancelar solicitud', 'anular'):
+      state.clear()
+      state['action'] = 'cancelar'
+      state['next_action'] = True
+      return {'reply': 'Para cancelar una solicitud, por favor ingresa tu correo electrónico:', 'state': state}
     elif msg in ('4', 'salir', 'terminar', 'adios', 'chao'):
       state.clear()
       return {'reply': '¡Hasta pronto! Gracias por usar el sistema de solicitudes. Si necesitas algo más, solo escribe "hola" para comenzar.', 'state': state}
@@ -177,6 +338,67 @@ def handle_message(state, message):
     else:
       return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
 
+  # Handle cancelar solicitud
+  if state.get('action') == 'cancelar':
+    if not state.get('cancel_correo'):
+      if '@' in msg:
+        correo = message.strip()
+        state['cancel_correo'] = correo
+        
+        # Buscar solicitudes pendientes del usuario
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute('SELECT id, tipo, inicio, fin FROM solicitudes WHERE correo = ? AND estado = "Pendiente" ORDER BY id DESC', (correo,))
+        rows = c.fetchall()
+        conn.close()
+        
+        if rows:
+          resultado = f"📋 **Solicitudes pendientes para {correo}:**\n\n"
+          for row in rows:
+            resultado += f"#{row[0]} - {row[1]} ({row[2]} al {row[3]})\n"
+          resultado += f"\n💡 Escribe el número de la solicitud que deseas cancelar:"
+          return {'reply': resultado, 'state': state}
+        else:
+          state.clear()
+          state['confirmado'] = True
+          return {'reply': f'No se encontraron solicitudes pendientes para {correo}.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Ver todas mis solicitudes\n4️⃣ Salir', 'state': state}
+      else:
+        return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
+    else:
+      # Usuario ya proporcionó correo, ahora esperamos el ID
+      try:
+        solicitud_id = int(msg)
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute('SELECT * FROM solicitudes WHERE id = ? AND correo = ? AND estado = "Pendiente"', (solicitud_id, state['cancel_correo']))
+        row = c.fetchone()
+        
+        if row:
+          c.execute('UPDATE solicitudes SET estado = ? WHERE id = ?', ('Cancelado', solicitud_id))
+          conn.commit()
+          conn.close()
+          
+          # Enviar notificación
+          subject = f"❌ Solicitud #{solicitud_id} - Cancelada"
+          body = f"""Hola,
+
+Tu solicitud de permiso #{solicitud_id} ha sido cancelada exitosamente.
+
+Si deseas crear una nueva solicitud, puedes hacerlo en cualquier momento.
+
+Saludos,
+Sistema de Gestión de Permisos"""
+          send_email_notification(state['cancel_correo'], subject, body)
+          
+          state.clear()
+          state['confirmado'] = True
+          return {'reply': f'✅ La solicitud #{solicitud_id} ha sido cancelada exitosamente.\n\n📧 Se ha enviado una confirmación por correo.\n\n¿Qué deseas hacer?\n1️⃣ Nueva solicitud\n2️⃣ Consultar solicitud\n3️⃣ Ver todas mis solicitudes\n4️⃣ Salir', 'state': state}
+        else:
+          conn.close()
+          return {'reply': f'❌ No se encontró una solicitud pendiente con el número {solicitud_id} para tu correo. Verifica el número e intenta de nuevo:', 'state': state}
+      except ValueError:
+        return {'reply': 'Por favor ingresa un número válido:', 'state': state}
+
   # If no nombre, ask for nombre
   if not state.get('nombre'):
     # try to extract email-like token
@@ -225,6 +447,7 @@ def handle_message(state, message):
 
   if not state.get('motivo'):
     state['motivo'] = message.strip()
+    state['esperando_confirmacion'] = True  # Nueva bandera
     # Build summary
     summary = (
       f"Resumen:\nNombre: {state['nombre']}\nCorreo: {state['correo']}\nTipo: {state['tipo']}\nInicio: {state['inicio']}\nFin: {state['fin']}\nMotivo: {state['motivo']}"
@@ -232,23 +455,80 @@ def handle_message(state, message):
     return {'reply': summary + '\n\n¿Confirmas enviar la solicitud? (si/no)', 'state': state}
 
 
-# Confirmation
-  if state.get('motivo') and not state.get('confirmado'):
+# Confirmation - primera pregunta (¿confirmas enviar?)
+  if state.get('esperando_confirmacion') and not state.get('solicitud_guardada'):
     if msg in ('si', 'sí', 's', 'yes'):
       # save to DB
       conn = sqlite3.connect(DB)
       c = conn.cursor()
       c.execute('''INSERT INTO solicitudes (nombre, correo, tipo, inicio, fin, motivo, estado, creado_en)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (
-        state['nombre'], state['correo'], state['tipo'], state['inicio'], state['fin'], state['motivo'], 'Pendiente', datetime.utcnow().isoformat()
+        state['nombre'], state['correo'], state['tipo'], state['inicio'], state['fin'], state['motivo'], 'Pendiente', datetime.now().isoformat()
       ))
       conn.commit()
       solicitud_id = c.lastrowid
       conn.close()
+      state['solicitud_id'] = solicitud_id
+      state['solicitud_guardada'] = True  # Marcar que ya se guardó
+      state['esperando_confirmacion'] = False  # Ya no está esperando la primera confirmación
+      state['esperando_respuesta_correo'] = True  # Ahora espera respuesta del correo
+      return {'reply': f"✅ ¡Tu solicitud ha sido registrada con éxito!\n\n📋 **Número de solicitud: {solicitud_id}**\n\n¿Deseas recibir un resumen en PDF por correo electrónico? (si/no)", 'state': state}
+    else:
+      state.clear()
+      return {'reply': 'Solicitud cancelada. Si quieres empezar de nuevo, escribe tu nombre.', 'state': state}
+
+  # Segunda pregunta (¿quieres recibir correo?)
+  if state.get('esperando_respuesta_correo') and state.get('solicitud_guardada') and not state.get('confirmado'):
+    if msg in ('si', 'sí', 's', 'yes'):
+      # Generar PDF y enviar correo
+      conn = sqlite3.connect(DB)
+      conn.row_factory = sqlite3.Row
+      c = conn.cursor()
+      c.execute('SELECT * FROM solicitudes WHERE id = ?', (state['solicitud_id'],))
+      row = c.fetchone()
+      conn.close()
+      
+      if row:
+        solicitud = dict(row)
+        pdf_file = generate_pdf(solicitud)
+        
+        # Enviar correo con PDF
+        subject = f"Solicitud de Permiso #{solicitud['id']} - Confirmación"
+        body = f"""Hola {solicitud['nombre']},
+
+Tu solicitud de permiso ha sido registrada exitosamente.
+
+Detalles:
+- Número de solicitud: #{solicitud['id']}
+- Tipo: {solicitud['tipo']}
+- Fecha inicio: {solicitud['inicio']}
+- Fecha fin: {solicitud['fin']}
+- Estado: {solicitud['estado']}
+
+Adjunto encontrarás un PDF con el resumen completo de tu solicitud.
+
+Puedes consultar el estado de tu solicitud en cualquier momento usando el número proporcionado.
+
+Saludos,
+Sistema de Gestión de Permisos"""
+        
+        send_email_notification(solicitud['correo'], subject, body, pdf_file)
+        
+        state['confirmado'] = True
+        menu = f"📧 ¡Perfecto! Se ha enviado un resumen en PDF a {solicitud['correo']}\n\n" \
+               f"📬 Revisa tu bandeja de entrada (puede tardar 1-2 minutos).\n" \
+               f"💡 Si no lo ves, revisa la carpeta de Spam.\n\n" \
+               f"¿Qué deseas hacer ahora?\n" \
+               f"1️⃣ Crear nueva solicitud\n" \
+               f"2️⃣ Consultar una solicitud\n" \
+               f"3️⃣ Ver todas mis solicitudes\n" \
+               f"4️⃣ Salir\n\n" \
+               f"Escribe el número o la opción que prefieras."
+        return {'reply': menu, 'state': state}
+    else:
       state['confirmado'] = True
-      menu = f"✅ ¡Tu solicitud ha sido registrada con éxito!\n\n" \
-             f"📋 **Número de solicitud: {solicitud_id}**\n\n" \
-             f"Guarda este número para consultar el estado de tu solicitud.\n\n" \
+      menu = f"De acuerdo, no se enviará correo.\n\n" \
+             f"Guarda este número para consultar el estado: **#{state['solicitud_id']}**\n\n" \
              f"¿Qué deseas hacer ahora?\n" \
              f"1️⃣ Crear nueva solicitud\n" \
              f"2️⃣ Consultar una solicitud\n" \
@@ -256,9 +536,6 @@ def handle_message(state, message):
              f"4️⃣ Salir\n\n" \
              f"Escribe el número o la opción que prefieras."
       return {'reply': menu, 'state': state}
-    else:
-      state.clear()
-      return {'reply': 'Solicitud cancelada. Si quieres empezar de nuevo, escribe tu nombre.', 'state': state}
 
   # Fallback
   return {'reply': 'No entendí. Por favor sigue las indicaciones.', 'state': state}
@@ -319,13 +596,84 @@ def update_solicitud(solicitud_id):
     if nuevo_estado not in ['Pendiente', 'Aprobado', 'Rechazado']:
         return jsonify({'error': 'Estado inválido'}), 400
     
+    # Obtener datos de la solicitud antes de actualizar
     conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
     c = conn.cursor()
+    c.execute('SELECT * FROM solicitudes WHERE id = ?', (solicitud_id,))
+    row = c.fetchone()
+    
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Solicitud no encontrada'}), 404
+    
+    solicitud = dict(row)
+    
+    # Actualizar estado
     c.execute('UPDATE solicitudes SET estado = ? WHERE id = ?', (nuevo_estado, solicitud_id))
     conn.commit()
     conn.close()
     
+    # Enviar notificación por correo
+    if nuevo_estado in ['Aprobado', 'Rechazado']:
+        estado_emoji = "✅" if nuevo_estado == "Aprobado" else "❌"
+        subject = f"{estado_emoji} Solicitud de Permiso #{solicitud_id} - {nuevo_estado}"
+        
+        if nuevo_estado == 'Aprobado':
+            body = f"""Hola {solicitud['nombre']},
+
+¡Buenas noticias! Tu solicitud de permiso ha sido APROBADA.
+
+Detalles de tu solicitud:
+- Número de solicitud: #{solicitud['id']}
+- Tipo de permiso: {solicitud['tipo']}
+- Fecha inicio: {solicitud['inicio']}
+- Fecha fin: {solicitud['fin']}
+- Motivo: {solicitud['motivo']}
+
+Tu permiso ha sido autorizado. Puedes proceder con tus planes.
+
+Saludos,
+Departamento de Recursos Humanos"""
+        else:
+            body = f"""Hola {solicitud['nombre']},
+
+Lamentamos informarte que tu solicitud de permiso ha sido RECHAZADA.
+
+Detalles de tu solicitud:
+- Número de solicitud: #{solicitud['id']}
+- Tipo de permiso: {solicitud['tipo']}
+- Fecha inicio: {solicitud['inicio']}
+- Fecha fin: {solicitud['fin']}
+- Motivo: {solicitud['motivo']}
+
+Si tienes preguntas sobre esta decisión, por favor contacta al Departamento de Recursos Humanos.
+
+Saludos,
+Departamento de Recursos Humanos"""
+        
+        send_email_notification(solicitud['correo'], subject, body)
+    
     return jsonify({'success': True, 'message': f'Solicitud {solicitud_id} actualizada a {nuevo_estado}'})
+
+
+@app.route('/api/solicitudes/<int:solicitud_id>/pdf', methods=['GET'])
+def download_pdf(solicitud_id):
+    """Endpoint para descargar el PDF de una solicitud"""
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute('SELECT * FROM solicitudes WHERE id = ?', (solicitud_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row:
+        return jsonify({'error': 'Solicitud no encontrada'}), 404
+    
+    solicitud = dict(row)
+    pdf_file = generate_pdf(solicitud)
+    
+    return send_file(pdf_file, as_attachment=True, download_name=f'solicitud_{solicitud_id}.pdf')
 
 
 if __name__ == '__main__':

@@ -124,12 +124,14 @@
       const messagesDiv = document.getElementById("messages");
       const inputField = document.getElementById("input");
       const sendBtn = document.getElementById("send");
+      let waitingForDate = false; // Flag para saber si esperamos una fecha
+      let dateType = null; // 'inicio' o 'fin'
 
       // Mensaje de bienvenida
       window.onload = () => {
         appendMessage(
           "bot",
-          "¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n\n💡 Tip: Si no sabes el número de tu solicitud, usa la opción 3 con tu correo electrónico.\n\nTambién puedes escribir tu nombre directamente para empezar con una nueva solicitud."
+          "¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n❌ Cancelar una solicitud pendiente\n\n💡 Tips:\n• Al crear una solicitud, podrás recibir un PDF por correo\n• Si no sabes el número, usa la opción 3 con tu correo\n• Escribe 'cancelar' para anular solicitudes pendientes\n\nTambién puedes escribir tu nombre directamente para empezar con una nueva solicitud."
         );
       };
 
@@ -145,6 +147,10 @@
         appendMessage("user", msg);
         inputField.value = "";
 
+        // Deshabilitar input mientras se procesa
+        inputField.disabled = true;
+        sendBtn.disabled = true;
+
         try {
           const res = await fetch("http://127.0.0.1:5000/chat", {
             method: "POST",
@@ -153,12 +159,67 @@
           });
           const j = await res.json();
           appendMessage("bot", j.reply);
+
+          // Detectar si necesitamos mostrar selector de fecha
+          if (j.reply.includes("¿Fecha de inicio?")) {
+            waitingForDate = true;
+            dateType = "inicio";
+            showDatePicker();
+          } else if (j.reply.includes("¿Fecha de fin?")) {
+            waitingForDate = true;
+            dateType = "fin";
+            showDatePicker();
+          } else {
+            waitingForDate = false;
+            dateType = null;
+          }
         } catch (error) {
           appendMessage(
             "bot",
             "Error al comunicarse con el servidor. Por favor intenta nuevamente."
           );
+        } finally {
+          // Rehabilitar input
+          inputField.disabled = false;
+          sendBtn.disabled = false;
+          inputField.focus();
         }
+      }
+
+      function showDatePicker() {
+        // Crear un input de fecha temporal
+        const dateInput = document.createElement("input");
+        dateInput.type = "date";
+        dateInput.className = "message user";
+        dateInput.style.padding = "10px";
+        dateInput.style.border = "2px solid #667eea";
+        dateInput.style.borderRadius = "8px";
+        dateInput.style.fontSize = "14px";
+        dateInput.style.marginLeft = "auto";
+        dateInput.style.maxWidth = "80%";
+        dateInput.style.cursor = "pointer";
+
+        // Establecer fecha mínima (hoy)
+        const today = new Date().toISOString().split("T")[0];
+        dateInput.min = today;
+
+        // Si es fecha de fin, abrir el picker automáticamente
+        dateInput.focus();
+
+        dateInput.onchange = async () => {
+          const selectedDate = dateInput.value;
+          if (selectedDate) {
+            dateInput.remove();
+            inputField.value = selectedDate;
+            await sendMessage();
+          }
+        };
+
+        messagesDiv.appendChild(dateInput);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+        // Abrir el picker automáticamente
+        setTimeout(() => dateInput.showPicker(), 100);
       }
 
       function appendMessage(sender, text) {

@@ -26,9 +26,27 @@ Sistema completo de gestión de solicitudes de permisos con chatbot interactivo 
 # Instalar dependencias
 pip install -r requirements.txt
 
+# Configurar correo electrónico (IMPORTANTE)
+# 1. Copia .env.example a .env
+# 2. Edita .env con tus credenciales
+# Ver INICIO_RAPIDO_CORREOS.md para más detalles
+
 # Ejecutar la aplicación
 python app.py
 ```
+
+## 📧 Configuración de Correo (Nuevo)
+
+El sistema ahora envía **correos electrónicos reales**. Para configurarlo:
+
+1. Lee `INICIO_RAPIDO_CORREOS.md` (configuración en 3 pasos)
+2. O lee `CONFIGURAR_CORREO.md` (guía completa)
+
+**Correos que se envían:**
+
+- ✅ PDF con resumen al crear solicitud
+- 📩 Notificación al aprobar/rechazar
+- 📧 Confirmación al cancelar solicitud
 
 ## 🌐 Uso
 
