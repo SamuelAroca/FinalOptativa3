@@ -65,19 +65,6 @@ def send_email_notification(to_email, subject, body, pdf_path=None):
     
     # Validar que las credenciales estén configuradas
     if not sender_email or not sender_password or sender_password == 'tu_contraseña_aqui':
-        print(f"\n{'='*60}")
-        print(f"⚠️  CONFIGURACIÓN DE CORREO PENDIENTE")
-        print(f"{'='*60}")
-        print(f"Para: {to_email}")
-        print(f"Asunto: {subject}")
-        print(f"Mensaje:\n{body}")
-        if pdf_path:
-            print(f"Adjunto: {pdf_path}")
-        print(f"\n💡 Para enviar correos reales:")
-        print(f"1. Edita el archivo .env")
-        print(f"2. Agrega tu correo y contraseña")
-        print(f"3. Reinicia el servidor")
-        print(f"{'='*60}\n")
         return False
     
     try:
@@ -103,24 +90,17 @@ def send_email_notification(to_email, subject, body, pdf_path=None):
             msg.attach(part)
         
         # Conectar y enviar
-        print(f"\n📧 Enviando correo a {to_email}...")
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(sender_email, sender_password)
         server.send_message(msg)
         server.quit()
         
-        print(f"✅ Correo enviado exitosamente a {to_email}")
-        print(f"   Asunto: {subject}\n")
         return True
         
     except smtplib.SMTPAuthenticationError:
-        print(f"\n❌ ERROR DE AUTENTICACIÓN")
-        print(f"   Verifica tu correo y contraseña en el archivo .env")
-        print(f"   Para Gmail, necesitas una 'Contraseña de Aplicación'\n")
         return False
     except Exception as e:
-        print(f"\n❌ Error al enviar correo: {str(e)}\n")
         return False
 
 
@@ -251,6 +231,73 @@ def handle_message(state, message):
     elif msg in ('4', 'salir', 'terminar', 'adios', 'chao'):
       state.clear()
       return {'reply': '¡Hasta pronto! Gracias por usar el sistema de solicitudes. Si necesitas algo más, solo escribe "hola" para comenzar.', 'state': state}
+    elif msg in ('estadisticas', 'estadísticas', 'stats', 'mis estadisticas'):
+      state.clear()
+      state['action'] = 'estadisticas'
+      state['next_action'] = True
+      return {'reply': 'Para ver tus estadísticas, por favor ingresa tu correo electrónico:', 'state': state}
+
+  # Handle estadisticas
+  if state.get('action') == 'estadisticas' and state.get('next_action'):
+    if '@' in msg:
+      correo = message.strip()
+      conn = sqlite3.connect(DB)
+      c = conn.cursor()
+      
+      # Contar solicitudes por estado
+      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ?', (correo,))
+      total = c.fetchone()[0]
+      
+      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Pendiente"', (correo,))
+      pendientes = c.fetchone()[0]
+      
+      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Aprobado"', (correo,))
+      aprobadas = c.fetchone()[0]
+      
+      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Rechazado"', (correo,))
+      rechazadas = c.fetchone()[0]
+      
+      c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Cancelado"', (correo,))
+      canceladas = c.fetchone()[0]
+      
+      # Solicitud más reciente
+      c.execute('SELECT tipo, inicio, estado FROM solicitudes WHERE correo = ? ORDER BY id DESC LIMIT 1', (correo,))
+      reciente = c.fetchone()
+      
+      conn.close()
+      
+      if total > 0:
+        tasa_aprobacion = (aprobadas / total * 100) if total > 0 else 0
+        
+        resultado = f"📊 **ESTADÍSTICAS PARA {correo}**\n\n" \
+                   f"📈 Total de solicitudes: {total}\n" \
+                   f"⏳ Pendientes: {pendientes}\n" \
+                   f"✅ Aprobadas: {aprobadas}\n" \
+                   f"❌ Rechazadas: {rechazadas}\n" \
+                   f"🚫 Canceladas: {canceladas}\n\n" \
+                   f"📊 Tasa de aprobación: {tasa_aprobacion:.1f}%\n\n"
+        
+        if reciente:
+          resultado += f"🕐 Última solicitud:\n" \
+                      f"   • Tipo: {reciente[0]}\n" \
+                      f"   • Fecha: {reciente[1]}\n" \
+                      f"   • Estado: {reciente[2]}\n\n"
+        
+        resultado += f"¿Qué deseas hacer?\n" \
+                    f"1️⃣ Nueva solicitud\n" \
+                    f"2️⃣ Consultar solicitud\n" \
+                    f"3️⃣ Ver todas mis solicitudes\n" \
+                    f"4️⃣ Salir"
+        
+        state.clear()
+        state['confirmado'] = True
+        return {'reply': resultado, 'state': state}
+      else:
+        state.clear()
+        state['confirmado'] = True
+        return {'reply': f'No tienes solicitudes registradas con el correo {correo}.\n\n¿Deseas crear una nueva solicitud? (1 = Sí, 4 = Salir)', 'state': state}
+    else:
+      return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
 
   # Handle consultar solicitud
   if state.get('action') == 'consultar' and state.get('next_action'):
@@ -411,11 +458,11 @@ Sistema de Gestión de Permisos"""
 
 
   if not state.get('correo'):
-    if '@' in msg:
+    if '@' in msg and '.' in msg.split('@')[-1]:
       state['correo'] = message.strip()
-      return {'reply': '¿Qué tipo de permiso requieres? (p. ej. Enfermedad, Personal, Estudio)', 'state': state}
+      return {'reply': '¿Qué tipo de permiso requieres?\n\n💡 Ejemplos:\n• Enfermedad 🏥\n• Personal 👤\n• Estudio 📚\n• Vacaciones 🏖️\n• Familiar 👨‍👩‍👧\n• Otro (especifica)', 'state': state}
     else:
-      return {'reply': 'Ese correo no parece válido. Por favor escribe tu correo (ej: tu@dominio.com).', 'state': state}
+      return {'reply': 'Ese correo no parece válido. Por favor escribe un correo válido (ej: usuario@dominio.com).', 'state': state}
 
 
   if not state.get('tipo'):
@@ -518,23 +565,25 @@ Sistema de Gestión de Permisos"""
         menu = f"📧 ¡Perfecto! Se ha enviado un resumen en PDF a {solicitud['correo']}\n\n" \
                f"📬 Revisa tu bandeja de entrada (puede tardar 1-2 minutos).\n" \
                f"💡 Si no lo ves, revisa la carpeta de Spam.\n\n" \
+               f"📋 Recuerda tu número de solicitud: **#{state['solicitud_id']}**\n\n" \
                f"¿Qué deseas hacer ahora?\n" \
                f"1️⃣ Crear nueva solicitud\n" \
                f"2️⃣ Consultar una solicitud\n" \
                f"3️⃣ Ver todas mis solicitudes\n" \
-               f"4️⃣ Salir\n\n" \
-               f"Escribe el número o la opción que prefieras."
+               f"📊 Ver mis estadísticas\n" \
+               f"4️⃣ Salir"
         return {'reply': menu, 'state': state}
     else:
       state['confirmado'] = True
-      menu = f"De acuerdo, no se enviará correo.\n\n" \
-             f"Guarda este número para consultar el estado: **#{state['solicitud_id']}**\n\n" \
+      menu = f"✅ De acuerdo, no se enviará correo.\n\n" \
+             f"📋 Guarda este número para consultar el estado: **#{state['solicitud_id']}**\n\n" \
+             f"💡 Tip: Puedes consultar tu solicitud en cualquier momento con la opción 2.\n\n" \
              f"¿Qué deseas hacer ahora?\n" \
-             f"1️⃣ Crear nueva solicitud\n" \
-             f"2️⃣ Consultar una solicitud\n" \
-             f"3️⃣ Ver todas mis solicitudes\n" \
-             f"4️⃣ Salir\n\n" \
-             f"Escribe el número o la opción que prefieras."
+               f"1️⃣ Crear nueva solicitud\n" \
+               f"2️⃣ Consultar una solicitud\n" \
+               f"3️⃣ Ver todas mis solicitudes\n" \
+               f"📊 Ver mis estadísticas\n" \
+               f"4️⃣ Salir"
       return {'reply': menu, 'state': state}
 
   # Fallback
@@ -557,7 +606,7 @@ def chat():
     # Handle reset
     if message.lower() in ('reiniciar', 'reset', 'empezar', 'hola', 'inicio', 'menu'):
         sessions[session_id] = {}
-        return jsonify({'reply': '¡Hola! Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n\n💡 Tip: Si no sabes el número de tu solicitud, usa la opción 3 con tu correo.'})
+        return jsonify({'reply': '¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n💡 Tip: Puedes usar los botones o escribir directamente tu nombre para crear una solicitud.'})
 
     # Get or create session state
     if session_id not in sessions:

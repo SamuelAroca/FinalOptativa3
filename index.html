@@ -50,6 +50,30 @@
         background: white;
         border: 1px solid #ddd;
       }
+      .button-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .btn-option {
+        padding: 8px 16px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.3s;
+      }
+      .btn-option:hover {
+        background: #5568d3;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+      .btn-option:active {
+        transform: translateY(0);
+      }
       #input-container {
         display: flex;
         padding: 15px;
@@ -83,6 +107,19 @@
       }
       #send:active {
         transform: scale(0.98);
+      }
+      #footer {
+        text-align: center;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        font-size: 12px;
+        margin-top: 20px;
+        border-radius: 10px;
+      }
+      #footer a {
+        color: white;
+        text-decoration: underline;
       }
     </style>
   </head>
@@ -119,6 +156,12 @@
       </div>
     </div>
 
+    <div id="footer">
+      💡 Sistema de Gestión de Permisos v2.0 |
+      <a href="http://127.0.0.1:5000/admin" target="_blank">Panel Admin</a> |
+      Escribe "menu" para volver al inicio
+    </div>
+
     <script>
       const sessionId = Math.random().toString(36).slice(2, 10);
       const messagesDiv = document.getElementById("messages");
@@ -129,11 +172,47 @@
 
       // Mensaje de bienvenida
       window.onload = () => {
-        appendMessage(
-          "bot",
-          "¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?\n\n1️⃣ Crear nueva solicitud\n2️⃣ Consultar una solicitud (muestra las últimas)\n3️⃣ Ver todas mis solicitudes (por correo)\n❌ Cancelar una solicitud pendiente\n\n💡 Tips:\n• Al crear una solicitud, podrás recibir un PDF por correo\n• Si no sabes el número, usa la opción 3 con tu correo\n• Escribe 'cancelar' para anular solicitudes pendientes\n\nTambién puedes escribir tu nombre directamente para empezar con una nueva solicitud."
-        );
+        showWelcomeMessage();
       };
+
+      function showWelcomeMessage() {
+        const welcomeText =
+          "¡Hola! 👋 Bienvenido al sistema de solicitudes de permisos.\n\n¿Qué deseas hacer?";
+        appendMessage("bot", welcomeText);
+
+        // Agregar botones de opciones
+        showOptionsButtons([
+          { text: "📝 Nueva solicitud", value: "1" },
+          { text: "🔍 Consultar solicitud", value: "2" },
+          { text: "📋 Mis solicitudes", value: "3" },
+          { text: "📊 Mis estadísticas", value: "estadisticas" },
+          { text: "❌ Cancelar solicitud", value: "cancelar" },
+        ]);
+      }
+
+      function showOptionsButtons(options) {
+        const buttonGroup = document.createElement("div");
+        buttonGroup.className = "message bot";
+        buttonGroup.style.maxWidth = "90%";
+
+        const buttonsContainer = document.createElement("div");
+        buttonsContainer.className = "button-group";
+
+        options.forEach((option) => {
+          const btn = document.createElement("button");
+          btn.className = "btn-option";
+          btn.textContent = option.text;
+          btn.onclick = () => {
+            inputField.value = option.value;
+            sendMessage();
+          };
+          buttonsContainer.appendChild(btn);
+        });
+
+        buttonGroup.appendChild(buttonsContainer);
+        messagesDiv.appendChild(buttonGroup);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
 
       sendBtn.onclick = sendMessage;
       inputField.onkeypress = (e) => {
@@ -159,6 +238,11 @@
           });
           const j = await res.json();
           appendMessage("bot", j.reply);
+
+          // Mostrar botones de confirmación si/no
+          if (j.reply.includes("(si/no)") || j.reply.includes("¿Confirmas")) {
+            showYesNoButtons();
+          }
 
           // Detectar si necesitamos mostrar selector de fecha
           if (j.reply.includes("¿Fecha de inicio?")) {
@@ -222,10 +306,63 @@
         setTimeout(() => dateInput.showPicker(), 100);
       }
 
+      function showYesNoButtons() {
+        const buttonGroup = document.createElement("div");
+        buttonGroup.className = "message bot";
+        buttonGroup.style.maxWidth = "90%";
+
+        const buttonsContainer = document.createElement("div");
+        buttonsContainer.className = "button-group";
+
+        const yesBtn = document.createElement("button");
+        yesBtn.className = "btn-option";
+        yesBtn.textContent = "✅ Sí";
+        yesBtn.style.background = "#10b981";
+        yesBtn.onclick = () => {
+          buttonGroup.remove();
+          inputField.value = "si";
+          sendMessage();
+        };
+
+        const noBtn = document.createElement("button");
+        noBtn.className = "btn-option";
+        noBtn.textContent = "❌ No";
+        noBtn.style.background = "#ef4444";
+        noBtn.onclick = () => {
+          buttonGroup.remove();
+          inputField.value = "no";
+          sendMessage();
+        };
+
+        buttonsContainer.appendChild(yesBtn);
+        buttonsContainer.appendChild(noBtn);
+        buttonGroup.appendChild(buttonsContainer);
+        messagesDiv.appendChild(buttonGroup);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+
       function appendMessage(sender, text) {
         const div = document.createElement("div");
         div.className = "message " + sender;
-        div.innerHTML = text.replace(/\n/g, "<br>");
+
+        // Formato especial para mensajes con emojis de estado
+        if (text.includes("✅") && text.includes("registrada con éxito")) {
+          div.style.background = "#d1fae5";
+          div.style.border = "2px solid #10b981";
+          div.style.color = "#065f46";
+        } else if (text.includes("📊 **ESTADÍSTICAS")) {
+          div.style.background = "#dbeafe";
+          div.style.border = "2px solid #3b82f6";
+          div.style.color = "#1e40af";
+        } else if (text.includes("❌") || text.includes("Error")) {
+          div.style.background = "#fee2e2";
+          div.style.border = "2px solid #ef4444";
+          div.style.color = "#991b1b";
+        }
+
+        div.innerHTML = text
+          .replace(/\n/g, "<br>")
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
         messagesDiv.appendChild(div);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
