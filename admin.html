@@ -221,37 +221,52 @@
         padding: 12px 16px;
         border-radius: 8px;
         color: #fff;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
         animation: slideIn 0.2s ease-out;
         font-size: 14px;
       }
-      .toast-success { background: #10b981; }
-      .toast-error { background: #ef4444; }
-      .toast-info { background: #3b82f6; }
+      .toast-success {
+        background: #10b981;
+      }
+      .toast-error {
+        background: #ef4444;
+      }
+      .toast-info {
+        background: #3b82f6;
+      }
       @keyframes slideIn {
-        from { opacity: 0; transform: translateY(-8px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       /* Fullscreen loader */
       .loader-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0,0,0,0.25);
+        background: rgba(0, 0, 0, 0.25);
         display: none;
         align-items: center;
         justify-content: center;
         z-index: 999;
       }
       .spinner {
-        width: 44px; height: 44px;
+        width: 44px;
+        height: 44px;
         border: 4px solid #ffffff88;
         border-top-color: #fff;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
       }
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
   </head>
@@ -343,20 +358,22 @@
       const processingIds = new Set();
 
       function showToast(type, message, timeout = 2500) {
-        const container = document.getElementById('toastContainer');
-        const el = document.createElement('div');
+        const container = document.getElementById("toastContainer");
+        const el = document.createElement("div");
         el.className = `toast toast-${type}`;
         el.textContent = message;
         container.appendChild(el);
         setTimeout(() => {
-          el.style.opacity = '0';
-          el.style.transform = 'translateY(-6px)';
+          el.style.opacity = "0";
+          el.style.transform = "translateY(-6px)";
           setTimeout(() => el.remove(), 180);
         }, timeout);
       }
 
       function showLoader(show) {
-        document.getElementById('loader').style.display = show ? 'flex' : 'none';
+        document.getElementById("loader").style.display = show
+          ? "flex"
+          : "none";
       }
 
       // Load data on page load
@@ -474,11 +491,12 @@
         processingIds.add(id);
 
         const btn = event?.currentTarget;
-        const row = btn ? btn.closest('tr') : null;
+        const row = btn ? btn.closest("tr") : null;
         // Disable action buttons on row
-        if (row) row.querySelectorAll('.btn').forEach(b => b.disabled = true);
+        if (row)
+          row.querySelectorAll(".btn").forEach((b) => (b.disabled = true));
         showLoader(true);
-        showToast('info', `Procesando #${id} → ${estado}...`, 1200);
+        showToast("info", `Procesando #${id} → ${estado}...`, 1200);
         try {
           const res = await fetch(
             `http://127.0.0.1:5000/api/solicitudes/${id}`,
@@ -490,18 +508,19 @@
           );
           if (res.ok) {
             const data = await res.json();
-            showToast('success', `✅ ${data.message}`);
+            showToast("success", `✅ ${data.message}`);
             await loadData();
           } else {
-            showToast('error', 'No se pudo actualizar el estado');
+            showToast("error", "No se pudo actualizar el estado");
           }
         } catch (error) {
-          showToast('error', 'Error al actualizar el estado');
+          showToast("error", "Error al actualizar el estado");
         } finally {
           processingIds.delete(id);
           showLoader(false);
           // Re-enable row buttons
-          if (row) row.querySelectorAll('.btn').forEach(b => b.disabled = false);
+          if (row)
+            row.querySelectorAll(".btn").forEach((b) => (b.disabled = false));
         }
       }
 
