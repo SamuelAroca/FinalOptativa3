@@ -182,21 +182,31 @@
 
         // Agregar botones de opciones
         showOptionsButtons([
-          { text: "📝 Nueva solicitud", value: "1" },
-          { text: "🔍 Consultar solicitud", value: "2" },
-          { text: "📋 Mis solicitudes", value: "3" },
-          { text: "📊 Mis estadísticas", value: "estadisticas" },
-          { text: "❌ Cancelar solicitud", value: "cancelar" },
+          { text: "1) 📝 Nueva solicitud", value: "1" },
+          { text: "2) 🔍 Consultar solicitud", value: "2" },
+          { text: "3) 📋 Mis solicitudes", value: "3" },
+          { text: "4) 📊 Mis estadísticas", value: "estadisticas" },
+          { text: "5) ❌ Cancelar solicitud", value: "cancelar" },
         ]);
       }
 
       function showOptionsButtons(options) {
+        // Eliminar grupos de botones de menú anteriores (para evitar duplicados)
+        const oldMenus = messagesDiv.querySelectorAll(
+          '.message.bot .button-group[data-menu="true"]'
+        );
+        oldMenus.forEach((el) => {
+          const parent = el.closest(".message");
+          if (parent) parent.remove();
+        });
+
         const buttonGroup = document.createElement("div");
         buttonGroup.className = "message bot";
         buttonGroup.style.maxWidth = "90%";
 
         const buttonsContainer = document.createElement("div");
         buttonsContainer.className = "button-group";
+        buttonsContainer.setAttribute("data-menu", "true");
 
         options.forEach((option) => {
           const btn = document.createElement("button");
@@ -239,16 +249,19 @@
           const j = await res.json();
           appendMessage("bot", j.reply);
 
-          // Mostrar botones del menú si viene showButtons
+          // Mostrar botones del menú si el backend lo indica o si la respuesta contiene la frase de menú
           console.log("Respuesta del servidor:", j);
-          if (j.showButtons === true) {
+          const wantsMenu =
+            j.showButtons === true ||
+            (j.reply && j.reply.includes("¿Qué deseas hacer"));
+          if (wantsMenu) {
             console.log("Mostrando botones del menú");
             showOptionsButtons([
-              { text: "📝 Nueva solicitud", value: "1" },
-              { text: "🔍 Consultar solicitud", value: "2" },
-              { text: "📋 Mis solicitudes", value: "3" },
-              { text: "📊 Mis estadísticas", value: "estadisticas" },
-              { text: "❌ Cancelar solicitud", value: "cancelar" },
+              { text: "1) 📝 Nueva solicitud", value: "1" },
+              { text: "2) 🔍 Consultar solicitud", value: "2" },
+              { text: "3) 📋 Mis solicitudes", value: "3" },
+              { text: "4) 📊 Mis estadísticas", value: "estadisticas" },
+              { text: "5) ❌ Cancelar solicitud", value: "cancelar" },
             ]);
           }
 
