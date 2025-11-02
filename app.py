@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -26,7 +26,30 @@ sessions = {}
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+# Tiempo de vida del correo guardado en memoria (minutos)
+SESSION_EMAIL_TTL_MINUTES = 120
 
+def email_guardado_vigente(state: dict) -> bool:
+    """Devuelve True si existe un correo guardado y no ha expirado su TTL."""
+    ts = state.get('correo_guardado_ts')
+    if not state.get('correo_usuario'):
+        return False
+    if not ts:
+        return False
+    try:
+        guardado = datetime.fromisoformat(ts)
+    except Exception:
+        return False
+    return datetime.now() - guardado < timedelta(minutes=SESSION_EMAIL_TTL_MINUTES)
+
+def limpiar_estado_preservando_correo(state: dict):
+    """Limpia el estado pero preserva el correo guardado y su timestamp si es válido."""
+    correo = state.get('correo_usuario')
+    timestamp = state.get('correo_guardado_ts')
+    state.clear()
+    if correo and timestamp:
+        state['correo_usuario'] = correo
+        state['correo_guardado_ts'] = timestamp
 # --- DB helpers ---
 def init_db():
     conn = sqlite3.connect(DB)
@@ -195,18 +218,15 @@ def handle_message(state, message):
   if not state.get('nombre') or state.get('confirmado'):
     # Preservar correo_usuario antes de cualquier acción
     correo_guardado = state.get('correo_usuario')
+    timestamp_guardado = state.get('correo_guardado_ts')
     
     # Menu options
     if msg in ('1', 'nueva', 'nueva solicitud', 'otro permiso'):
       # Reset state for new request
-      state.clear()
-      if correo_guardado:
-        state['correo_usuario'] = correo_guardado
+      limpiar_estado_preservando_correo(state)
       return {'reply': 'Perfecto, iniciemos una nueva solicitud. Por favor dime tu nombre completo.', 'state': state}
     elif msg in ('2', 'consultar', 'ver solicitud', 'estado', 'consultar solicitud'):
-      state.clear()
-      if correo_guardado:
-        state['correo_usuario'] = correo_guardado
+      limpiar_estado_preservando_correo(state)
       state['action'] = 'consultar'
       state['next_action'] = True
       
@@ -226,28 +246,106 @@ def handle_message(state, message):
       else:
         return {'reply': 'No hay solicitudes registradas aún. Por favor ingresa el número de solicitud que deseas consultar:', 'state': state}
     elif msg in ('3', 'mis solicitudes', 'todas', 'listar', 'ver todas'):
-      state.clear()
-      if correo_guardado:
-        state['correo_usuario'] = correo_guardado
+      limpiar_estado_preservando_correo(state)
       state['action'] = 'listar'
       state['next_action'] = True
+      # Si hay correo guardado y vigente, usar directamente
+      if email_guardado_vigente(state):
+        # Procesar inmediatamente con el correo guardado
+        correo = state['correo_usuario']
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute('SELECT * FROM solicitudes WHERE correo = ? ORDER BY id DESC', (correo,))
+        rows = c.fetchall()
+        conn.close()
+        
+        if rows:
+          resultado = f'📋 **Solicitudes para {correo}:**\n\n'
+          for row in rows:
+            resultado += f"#{row[0]} - {row[3]} ({row[4]} a {row[5]}) - {row[7]}\n"
+          
+          resultado += f"¿Qué deseas hacer?"
+          
+          limpiar_estado_preservando_correo(state)
+          state['confirmado'] = True
+          return {'reply': resultado, 'state': state, 'showButtons': True}
+        else:
+          resultado = f'No se encontraron solicitudes para el correo {correo}.\n\n¿Qué deseas hacer?'
+          limpiar_estado_preservando_correo(state)
+          state['confirmado'] = True
+          return {'reply': resultado, 'state': state, 'showButtons': True}
       return {'reply': 'Por favor ingresa tu correo electrónico para ver todas tus solicitudes:', 'state': state}
     elif msg in ('cancelar', 'cancelar solicitud', 'anular'):
-      state.clear()
-      if correo_guardado:
-        state['correo_usuario'] = correo_guardado
+      limpiar_estado_preservando_correo(state)
       state['action'] = 'cancelar'
       state['next_action'] = True
+      # Si hay correo guardado y vigente, usar directamente
+      if email_guardado_vigente(state):
+        state['cancel_correo'] = state['correo_usuario']
+        # Buscar solicitudes pendientes
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        c.execute('SELECT id, tipo, inicio, fin FROM solicitudes WHERE correo = ? AND estado = "Pendiente"', (state['cancel_correo'],))
+        pendientes = c.fetchall()
+        conn.close()
+        
+        if pendientes:
+          msg_pendientes = f'📋 **Solicitudes pendientes para {state["cancel_correo"]}:**\n\n'
+          for p in pendientes:
+            msg_pendientes += f"#{p[0]} - {p[1]} ({p[2]} a {p[3]})\n"
+          msg_pendientes += '\n💡 Escribe el número de la solicitud que deseas cancelar:'
+          return {'reply': msg_pendientes, 'state': state}
+        else:
+          limpiar_estado_preservando_correo(state)
+          state['confirmado'] = True
+          return {'reply': f'No se encontraron solicitudes pendientes para {state.get("correo_usuario")}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
       return {'reply': 'Para cancelar una solicitud, por favor ingresa tu correo electrónico:', 'state': state}
     elif msg in ('4', 'salir', 'terminar', 'adios', 'chao'):
       state.clear()
       return {'reply': '¡Hasta pronto! Gracias por usar el sistema de solicitudes. Si necesitas algo más, solo escribe "hola" para comenzar.', 'state': state}
     elif msg in ('estadisticas', 'estadísticas', 'stats', 'mis estadisticas'):
-      state.clear()
-      if correo_guardado:
-        state['correo_usuario'] = correo_guardado
+      limpiar_estado_preservando_correo(state)
       state['action'] = 'estadisticas'
       state['next_action'] = True
+      # Si hay correo guardado y vigente, procesar inmediatamente
+      if email_guardado_vigente(state):
+        correo = state['correo_usuario']
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+        
+        c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ?', (correo,))
+        total = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Pendiente"', (correo,))
+        pendientes = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Aprobado"', (correo,))
+        aprobadas = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Rechazado"', (correo,))
+        rechazadas = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM solicitudes WHERE correo = ? AND estado = "Cancelado"', (correo,))
+        canceladas = c.fetchone()[0]
+        c.execute('SELECT tipo, inicio, estado FROM solicitudes WHERE correo = ? ORDER BY id DESC LIMIT 1', (correo,))
+        reciente = c.fetchone()
+        conn.close()
+        
+        if total > 0:
+          tasa_aprobacion = (aprobadas / total * 100) if total > 0 else 0
+          resultado = f"📊 **ESTADÍSTICAS PARA {correo}**\n\n" \
+                     f"📈 Total de solicitudes: {total}\n" \
+                     f"⏳ Pendientes: {pendientes}\n" \
+                     f"✅ Aprobadas: {aprobadas}\n" \
+                     f"❌ Rechazadas: {rechazadas}\n" \
+                     f"🚫 Canceladas: {canceladas}\n\n" \
+                     f"📊 Tasa de aprobación: {tasa_aprobacion:.1f}%\n\n"
+          if reciente:
+            resultado += f"🕐 Última solicitud:\n   • Tipo: {reciente[0]}\n   • Fecha: {reciente[1]}\n   • Estado: {reciente[2]}\n\n"
+          resultado += f"¿Qué deseas hacer?"
+          limpiar_estado_preservando_correo(state)
+          state['confirmado'] = True
+          return {'reply': resultado, 'state': state, 'showButtons': True}
+        else:
+          limpiar_estado_preservando_correo(state)
+          state['confirmado'] = True
+          return {'reply': f'No tienes solicitudes registradas con el correo {correo}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
       return {'reply': 'Para ver tus estadísticas, por favor ingresa tu correo electrónico:', 'state': state}
 
   # Handle estadisticas
@@ -258,6 +356,7 @@ def handle_message(state, message):
     elif '@' in msg:
       correo = message.strip()
       state['correo_usuario'] = correo  # Guardar para futuras consultas
+      state['correo_guardado_ts'] = datetime.now().isoformat()
     else:
       return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
     
@@ -305,14 +404,12 @@ def handle_message(state, message):
       
       resultado += f"¿Qué deseas hacer?"
       
-      state.clear()
+      limpiar_estado_preservando_correo(state)
       state['confirmado'] = True
-      state['correo_usuario'] = correo  # Mantener el correo guardado
       return {'reply': resultado, 'state': state, 'showButtons': True}
     else:
-      state.clear()
+      limpiar_estado_preservando_correo(state)
       state['confirmado'] = True
-      state['correo_usuario'] = correo  # Mantener el correo guardado
       return {'reply': f'No tienes solicitudes registradas con el correo {correo}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
 
   # Handle consultar solicitud
@@ -336,7 +433,7 @@ def handle_message(state, message):
                    f"🔔 Estado: {row[7]}\n" \
                    f"🕐 Creado: {row[8]}\n\n" \
                    f"¿Qué deseas hacer?"
-        state.clear()
+        limpiar_estado_preservando_correo(state)
         state['confirmado'] = True
         return {'reply': resultado, 'state': state, 'showButtons': True}
       else:
@@ -370,6 +467,7 @@ def handle_message(state, message):
     elif '@' in msg:
       correo = message.strip()
       state['correo_usuario'] = correo  # Guardar para futuras consultas
+      state['correo_guardado_ts'] = datetime.now().isoformat()
     else:
       return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
     
@@ -388,15 +486,13 @@ def handle_message(state, message):
                   f"2️⃣ Consultar solicitud específica\n" \
                   f"3️⃣ Ver todas mis solicitudes\n" \
                   f"4️⃣ Salir"
-      state.clear()
+      limpiar_estado_preservando_correo(state)
       state['confirmado'] = True
-      state['correo_usuario'] = correo  # Mantener el correo guardado
       return {'reply': resultado, 'state': state}
     else:
       resultado = f'No se encontraron solicitudes para el correo {correo}.\n\n¿Qué deseas hacer?'
-      state.clear()
+      limpiar_estado_preservando_correo(state)
       state['confirmado'] = True
-      state['correo_usuario'] = correo  # Mantener el correo guardado
       return {'reply': resultado, 'state': state, 'showButtons': True}
 
   # Handle cancelar solicitud
@@ -410,6 +506,7 @@ def handle_message(state, message):
         correo = message.strip()
         state['cancel_correo'] = correo
         state['correo_usuario'] = correo  # Guardar para futuras consultas
+        state['correo_guardado_ts'] = datetime.now().isoformat()
       else:
         return {'reply': 'Por favor ingresa un correo válido (debe contener @):', 'state': state}
       
@@ -427,9 +524,8 @@ def handle_message(state, message):
         resultado += f"\n💡 Escribe el número de la solicitud que deseas cancelar:"
         return {'reply': resultado, 'state': state}
       else:
-        state.clear()
+        limpiar_estado_preservando_correo(state)
         state['confirmado'] = True
-        state['correo_usuario'] = correo  # Mantener el correo guardado
         return {'reply': f'No se encontraron solicitudes pendientes para {correo}.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
     else:
       # Usuario ya proporcionó correo, ahora esperamos el ID
@@ -457,7 +553,7 @@ Saludos,
 Sistema de Gestión de Permisos"""
           send_email_notification(state['cancel_correo'], subject, body)
           
-          state.clear()
+          limpiar_estado_preservando_correo(state)
           state['confirmado'] = True
           return {'reply': f'✅ La solicitud #{solicitud_id} ha sido cancelada exitosamente.\n\n📧 Se ha enviado una confirmación por correo.\n\n¿Qué deseas hacer?', 'state': state, 'showButtons': True}
         else:
@@ -474,13 +570,33 @@ Sistema de Gestión de Permisos"""
       return {'reply': 'Gracias. Ahora dime tu nombre completo.', 'state': state}
     # if user writes name
     state['nombre'] = message.strip()
+    # Si ya hay un correo guardado y vigente, preguntar si desea reutilizarlo
+    if email_guardado_vigente(state):
+      state['confirmar_correo_guardado'] = True
+      correo_g = state.get('correo_usuario')
+      return {'reply': f"Ya tengo guardado tu correo {correo_g}. ¿Deseas usarlo para esta solicitud? (si/no)", 'state': state}
     return {'reply': '¿Cuál es tu correo electrónico?', 'state': state}
 
+
+  # Confirmación de reutilizar correo guardado
+  if state.get('confirmar_correo_guardado') and not state.get('correo'):
+    if msg in ('si', 'sí', 's', 'yes'):
+      # Reutilizar el correo guardado
+      state['correo'] = state.get('correo_usuario')
+      state['confirmar_correo_guardado'] = False
+      return {'reply': '¿Qué tipo de permiso requieres?\n\n💡 Ejemplos:\n• Enfermedad 🏥\n• Personal 👤\n• Estudio 📚\n• Vacaciones 🏖️\n• Familiar 👨‍👩‍👧\n• Otro (especifica)', 'state': state}
+    elif msg in ('no', 'n'):
+      state['confirmar_correo_guardado'] = False
+      return {'reply': 'De acuerdo. Por favor escribe tu correo electrónico:', 'state': state}
+    else:
+      correo_g = state.get('correo_usuario')
+      return {'reply': f"Por favor responde 'si' o 'no'. ¿Deseas usar el correo {correo_g}? (si/no)", 'state': state}
 
   if not state.get('correo'):
     if '@' in msg and '.' in msg.split('@')[-1]:
       state['correo'] = message.strip()
       state['correo_usuario'] = message.strip()  # Guardar para futuras consultas
+      state['correo_guardado_ts'] = datetime.now().isoformat()  # TTL inicio
       return {'reply': '¿Qué tipo de permiso requieres?\n\n💡 Ejemplos:\n• Enfermedad 🏥\n• Personal 👤\n• Estudio 📚\n• Vacaciones 🏖️\n• Familiar 👨‍👩‍👧\n• Otro (especifica)', 'state': state}
     else:
       return {'reply': 'Ese correo no parece válido. Por favor escribe un correo válido (ej: usuario@dominio.com).', 'state': state}
